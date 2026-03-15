@@ -7,6 +7,7 @@
 import os
 import json
 import random
+import subprocess
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import customtkinter as ctk
@@ -312,6 +313,7 @@ class CatMusicPlayer:
         self.playlist_listbox.pack(fill="x", pady=5)
         self.playlist_listbox.bind("<Double-Button-1>", self.on_playlist_select)
         self.playlist_listbox.bind("<ButtonRelease-1>", self.on_playlist_click)
+        self.playlist_listbox.bind("<Button-3>", self.on_playlist_right_click)
         
         # 歌单操作按钮
         playlist_btn_frame = ctk.CTkFrame(top_right_frame, fg_color="transparent")
@@ -387,6 +389,7 @@ class CatMusicPlayer:
         self.song_listbox.bind("<B1-Motion>", self.on_song_drag_motion)
         self.song_listbox.bind("<ButtonRelease-1>", self.on_song_drag_release)
         self.song_listbox.bind("<Double-Button-1>", self.on_song_select)
+        self.song_listbox.bind("<Button-3>", self.on_song_right_click)
         
         scrollbar = ctk.CTkScrollbar(list_frame, command=self.song_listbox.yview,
                                       button_color=COLORS["accent"],
@@ -532,6 +535,43 @@ class CatMusicPlayer:
             index = selection[0]
             playlist_name = list(self.playlists.keys())[index]
             self.switch_playlist(playlist_name)
+    
+    def on_playlist_right_click(self, event):
+        """歌单右键菜单"""
+        # 获取点击的位置对应的索引
+        index = self.playlist_listbox.nearest(event.y)
+        if index < 0 or index >= self.playlist_listbox.size():
+            return
+        
+        # 选中该项
+        self.playlist_listbox.selection_clear(0, tk.END)
+        self.playlist_listbox.selection_set(index)
+        self.playlist_listbox.activate(index)
+        
+        # 创建右键菜单
+        menu = tk.Menu(self.root, tearoff=0, bg=COLORS["list_bg"],
+                       fg=COLORS["text_primary"], activebackground=COLORS["accent"],
+                       activeforeground="white", font=("微软雅黑", 10))
+        menu.add_command(label="📂 打开歌单所在目录", command=lambda: self.open_playlist_folder(index))
+        
+        # 显示菜单
+        menu.post(event.x_root, event.y_root)
+    
+    def open_playlist_folder(self, index):
+        """打开歌单所在目录"""
+        if index < 0 or index >= len(self.playlists):
+            return
+        playlist_name = list(self.playlists.keys())[index]
+        folder = self.playlists[playlist_name].get('folder', '')
+        
+        if folder and os.path.exists(folder):
+            try:
+                # 使用 explorer 打开文件夹
+                subprocess.Popen(['explorer', folder])
+            except Exception as e:
+                print(f"打开文件夹失败: {e}")
+        else:
+            messagebox.showwarning("🐱 提示", "该歌单的文件夹不存在喵~")
     
     def switch_playlist(self, playlist_name):
         """切换歌单"""
@@ -701,6 +741,160 @@ class CatMusicPlayer:
         if self.drag_start_index is not None and not self.is_searching:
             self.save_config()
         self.drag_start_index = None
+    
+    def on_song_right_click(self, event):
+        """歌曲右键菜单"""
+        if not self.current_playlist_name:
+            return
+        
+        # 获取点击的位置对应的索引（显示列表中的索引）
+        display_index = self.song_listbox.nearest(event.y)
+        if display_index < 0 or display_index >= self.song_listbox.size():
+            return
+        
+        # 选中该项
+        self.song_listbox.selection_clear(0, tk.END)
+        self.song_listbox.selection_set(display_index)
+        self.song_listbox.activate(display_index)
+        
+        # 获取原始索引
+        if self.is_searching and display_index < len(self.filtered_indices):
+            original_index = self.filtered_indices[display_index]
+        else:
+            original_index = display_index
+        
+        songs = self.playlists[self.current_playlist_name].get('songs', [])
+        if not songs or original_index < 0 or original_index >= len(songs):
+            return
+        
+        # 创建右键菜单
+        menu = tk.Menu(self.root, tearoff=0, bg=COLORS["list_bg"],
+                       fg=COLORS["text_primary"], activebackground=COLORS["accent"],
+                       activeforeground="white", font=("微软雅黑", 10))
+        menu.add_command(label="📂 打开歌曲所在目录", 
+                        command=lambda: self.open_song_folder(original_index))
+        menu.add_separator()
+        
+        # 搜索模式下禁用上移下移
+        if not self.is_searching:
+            menu.add_command(label="⬆️ 上移", 
+                            command=lambda: self.move_song_up(original_index),
+                            state="normal" if original_index > 0 else "disabled")
+            menu.add_command(label="⬇️ 下移", 
+                            command=lambda: self.move_song_down(original_index),
+                            state="normal" if original_index < len(songs) - 1 else "disabled")
+            menu.add_separator()
+        
+        menu.add_command(label="🗑 删除歌曲", 
+                        command=lambda: self.delete_song(original_index),
+                        foreground="#FF1493")
+        
+        # 显示菜单
+        menu.post(event.x_root, event.y_root)
+    
+    def open_song_folder(self, index):
+        """打开歌曲所在目录"""
+        if not self.current_playlist_name:
+            return
+        
+        songs = self.playlists[self.current_playlist_name].get('songs', [])
+        if index < 0 or index >= len(songs):
+            return
+        
+        _, filepath = songs[index]
+        folder = os.path.dirname(filepath)
+        
+        if folder and os.path.exists(folder):
+            try:
+                # 使用 explorer 打开文件夹并选中文件
+                subprocess.Popen(['explorer', '/select,', os.path.normpath(filepath)])
+            except Exception as e:
+                print(f"打开文件夹失败: {e}")
+        else:
+            messagebox.showwarning("🐱 提示", "该歌曲的文件不存在喵~")
+    
+    def move_song_up(self, index):
+        """上移歌曲"""
+        if not self.current_playlist_name or index <= 0:
+            return
+        
+        songs = self.playlists[self.current_playlist_name].get('songs', [])
+        if index >= len(songs):
+            return
+        
+        # 交换位置
+        songs[index], songs[index - 1] = songs[index - 1], songs[index]
+        
+        # 更新当前播放索引
+        if self.current_index == index:
+            self.current_index = index - 1
+        elif self.current_index == index - 1:
+            self.current_index = index
+        
+        self.update_song_listbox()
+        self.save_config()
+        
+        # 保持选中状态
+        self.song_listbox.selection_clear(0, tk.END)
+        self.song_listbox.selection_set(index - 1)
+        self.song_listbox.see(index - 1)
+    
+    def move_song_down(self, index):
+        """下移歌曲"""
+        if not self.current_playlist_name:
+            return
+        
+        songs = self.playlists[self.current_playlist_name].get('songs', [])
+        if index < 0 or index >= len(songs) - 1:
+            return
+        
+        # 交换位置
+        songs[index], songs[index + 1] = songs[index + 1], songs[index]
+        
+        # 更新当前播放索引
+        if self.current_index == index:
+            self.current_index = index + 1
+        elif self.current_index == index + 1:
+            self.current_index = index
+        
+        self.update_song_listbox()
+        self.save_config()
+        
+        # 保持选中状态
+        self.song_listbox.selection_clear(0, tk.END)
+        self.song_listbox.selection_set(index + 1)
+        self.song_listbox.see(index + 1)
+    
+    def delete_song(self, index):
+        """删除歌曲"""
+        if not self.current_playlist_name:
+            return
+        
+        songs = self.playlists[self.current_playlist_name].get('songs', [])
+        if index < 0 or index >= len(songs):
+            return
+        
+        filename, filepath = songs[index]
+        display_name = self.get_display_name(filename)
+        
+        if messagebox.askyesno("🐱 确认删除", f"确定要从歌单中删除歌曲 [{display_name}] 吗？\n\n注意：不会删除实际文件喵~"):
+            # 如果正在播放这首歌，先停止
+            if self.current_index == index and self.is_playing:
+                self.stop_playback()
+                self.current_index = -1
+            elif self.current_index > index:
+                self.current_index -= 1
+            
+            # 从列表中删除
+            songs.pop(index)
+            
+            self.update_song_listbox()
+            self.save_config()
+            
+            # 更新计数
+            total = len(songs)
+            self.count_label.configure(text=f"🎵 {total} 首歌曲")
+            self.status_label.configure(text=f"🐱 已删除歌曲 [{display_name}]")
     
     def on_song_select(self, event):
         """双击播放歌曲（支持搜索过滤后的索引映射）"""
