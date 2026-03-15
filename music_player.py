@@ -77,6 +77,7 @@ class CatMusicPlayer:
         self.current_pos = 0
         self.is_dragging = False
         self.seek_time = 0
+        self.is_ending = False  # 防止歌曲结束检测重复触发
         
         # 系统托盘
         self.tray_icon = None
@@ -735,6 +736,7 @@ class CatMusicPlayer:
         pygame.mixer.music.stop()
         self.is_playing = False
         self.is_paused = False
+        self.is_ending = False  # 重置结束标志
         self.current_pos = 0
         self.seek_time = 0
         self.play_btn.configure(text="▶ 播放")
@@ -1434,7 +1436,7 @@ class CatMusicPlayer:
         """更新播放进度"""
         while self.running:
             try:
-                if self.is_playing and not self.is_dragging and self.song_length > 0:
+                if self.is_playing and not self.is_dragging and self.song_length > 0 and not self.is_ending:
                     pos_from_play = pygame.mixer.music.get_pos() / 1000.0
                     
                     if pos_from_play >= 0:
@@ -1452,6 +1454,7 @@ class CatMusicPlayer:
                         is_near_end = self.current_pos >= self.song_length - 0.5
                         
                         if (not is_busy and not self.is_paused) or is_near_end:
+                            self.is_ending = True  # 标记正在处理结束，防止重复触发
                             self.is_playing = False
                             self.root.after(0, self.on_song_end)
                             
@@ -1475,10 +1478,12 @@ class CatMusicPlayer:
             self.seek_time = 0
             
             if not self.current_playlist_name:
+                self.is_ending = False
                 return
             
             songs = self.playlists[self.current_playlist_name].get('songs', [])
             if not songs:
+                self.is_ending = False
                 return
             
             if self.play_mode == "single":
@@ -1492,6 +1497,8 @@ class CatMusicPlayer:
                 self.play_song(next_index)
         except Exception as e:
             print(f"Song end error: {e}")
+        finally:
+            self.is_ending = False  # 重置结束标志，允许下次检测
     
     def format_time(self, seconds):
         try:
