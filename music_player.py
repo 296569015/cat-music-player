@@ -543,35 +543,47 @@ class CatMusicPlayer:
         if index < 0 or index >= self.playlist_listbox.size():
             return
         
+        # 获取歌单名称（直接在这里获取，避免闭包问题）
+        playlist_names = list(self.playlists.keys())
+        if index >= len(playlist_names):
+            return
+        playlist_name = playlist_names[index]
+        
         # 选中该项
         self.playlist_listbox.selection_clear(0, tk.END)
         self.playlist_listbox.selection_set(index)
         self.playlist_listbox.activate(index)
         
-        # 创建右键菜单
+        # 创建右键菜单 - 直接传递歌单名称
         menu = tk.Menu(self.root, tearoff=0, bg=COLORS["list_bg"],
                        fg=COLORS["text_primary"], activebackground=COLORS["accent"],
                        activeforeground="white", font=("微软雅黑", 10))
-        menu.add_command(label="📂 打开歌单所在目录", command=lambda idx=index: self.open_playlist_folder(idx))
+        menu.add_command(label="📂 打开歌单所在目录", 
+                        command=lambda name=playlist_name: self.open_playlist_folder_by_name(name))
         
         # 显示菜单
         menu.post(event.x_root, event.y_root)
     
-    def open_playlist_folder(self, index):
-        """打开歌单所在目录"""
-        if index < 0 or index >= len(self.playlists):
+    def open_playlist_folder_by_name(self, playlist_name):
+        """根据歌单名称打开所在目录"""
+        if playlist_name not in self.playlists:
+            print(f"歌单 {playlist_name} 不存在")
             return
-        playlist_name = list(self.playlists.keys())[index]
+        
         folder = self.playlists[playlist_name].get('folder', '')
+        print(f"尝试打开歌单 [{playlist_name}] 的目录: {folder}")
         
         if folder and os.path.exists(folder):
             try:
-                # 使用 explorer 打开文件夹
-                subprocess.Popen(['explorer', folder])
+                # 使用 explorer 打开文件夹，使用绝对路径
+                abs_path = os.path.abspath(folder)
+                subprocess.Popen(['explorer', abs_path])
+                print(f"已打开: {abs_path}")
             except Exception as e:
                 print(f"打开文件夹失败: {e}")
+                messagebox.showerror("🐱 错误", f"无法打开文件夹:\n{str(e)}")
         else:
-            messagebox.showwarning("🐱 提示", "该歌单的文件夹不存在喵~")
+            messagebox.showwarning("🐱 提示", f"该歌单的文件夹不存在:\n{folder}")
     
     def switch_playlist(self, playlist_name):
         """切换歌单"""
