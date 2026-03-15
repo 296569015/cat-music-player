@@ -552,7 +552,7 @@ class CatMusicPlayer:
         menu = tk.Menu(self.root, tearoff=0, bg=COLORS["list_bg"],
                        fg=COLORS["text_primary"], activebackground=COLORS["accent"],
                        activeforeground="white", font=("微软雅黑", 10))
-        menu.add_command(label="📂 打开歌单所在目录", command=lambda: self.open_playlist_folder(index))
+        menu.add_command(label="📂 打开歌单所在目录", command=lambda idx=index: self.open_playlist_folder(idx))
         
         # 显示菜单
         menu.post(event.x_root, event.y_root)
@@ -772,21 +772,21 @@ class CatMusicPlayer:
                        fg=COLORS["text_primary"], activebackground=COLORS["accent"],
                        activeforeground="white", font=("微软雅黑", 10))
         menu.add_command(label="📂 打开歌曲所在目录", 
-                        command=lambda: self.open_song_folder(original_index))
+                        command=lambda idx=original_index: self.open_song_folder(idx))
         menu.add_separator()
         
         # 搜索模式下禁用上移下移
         if not self.is_searching:
             menu.add_command(label="⬆️ 上移", 
-                            command=lambda: self.move_song_up(original_index),
+                            command=lambda idx=original_index: self.move_song_up(idx),
                             state="normal" if original_index > 0 else "disabled")
             menu.add_command(label="⬇️ 下移", 
-                            command=lambda: self.move_song_down(original_index),
+                            command=lambda idx=original_index: self.move_song_down(idx),
                             state="normal" if original_index < len(songs) - 1 else "disabled")
             menu.add_separator()
         
         menu.add_command(label="🗑 删除歌曲", 
-                        command=lambda: self.delete_song(original_index),
+                        command=lambda idx=original_index: self.delete_song(idx),
                         foreground="#FF1493")
         
         # 显示菜单
