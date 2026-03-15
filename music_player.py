@@ -1059,7 +1059,7 @@ class CatMusicPlayer:
             icon_image = self.create_cat_icon()
             
             menu = Menu(
-                MenuItem("🐱 显示界面", self._on_tray_show),
+                MenuItem("🐱 显示界面", self._on_tray_show, default=True),
                 MenuItem("⏸ 暂停/播放", self._on_tray_play),
                 MenuItem("⏭ 下一曲", self._on_tray_next),
                 Menu.SEPARATOR,
@@ -1069,16 +1069,15 @@ class CatMusicPlayer:
             self.tray_icon = pystray.Icon("cat_music_player", icon_image, 
                                            "🐱 猫猫给你唱歌~", menu)
             self.tray_running = True
-            self.tray_icon.on_activate = self._on_tray_activate
             self.tray_icon.run()
         except Exception as e:
             print(f"Tray error: {e}")
         finally:
             self.tray_running = False
     
-    def _on_tray_activate(self, icon, button):
-        if button == pystray.MouseButton.LEFT or button == 1:
-            self.show_from_tray()
+    def _on_tray_activate(self):
+        """双击托盘图标显示主界面"""
+        self.show_from_tray()
     
     def _on_tray_show(self, icon=None, item=None):
         self.show_from_tray()
