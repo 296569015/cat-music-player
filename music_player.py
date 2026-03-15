@@ -112,23 +112,34 @@ class CatMusicPlayer:
     # ==================== 配置管理 ====================
     def load_config(self):
         """加载配置文件"""
+        # 默认音量
+        self.saved_volume = 70
+        
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.playlists = data.get('playlists', {})
                     self.current_playlist_name = data.get('last_playlist', None)
+                    self.current_song = data.get('current_song', {})  # {playlist_name: song_filename}
+                    self.saved_volume = data.get('volume', 70)
             except Exception as e:
                 print(f"加载配置失败: {e}")
                 self.playlists = {}
                 self.current_playlist_name = None
+                self.saved_volume = 70
     
     def save_config(self):
         """保存配置文件"""
         try:
+            # 获取当前音量
+            current_volume = int(self.volume_slider.get()) if hasattr(self, 'volume_slider') else 70
+            
             data = {
                 'playlists': self.playlists,
-                'last_playlist': self.current_playlist_name
+                'last_playlist': self.current_playlist_name,
+                'current_song': self.current_song if hasattr(self, 'current_song') else {},
+                'volume': current_volume
             }
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -272,17 +283,49 @@ class CatMusicPlayer:
         
         ctk.CTkLabel(volume_frame, text="🐱 🔇", font=ctk.CTkFont(size=14)).grid(row=0, column=0)
         
-        self.volume_slider = ctk.CTkSlider(volume_frame, from_=0, to=100, width=180,
+        self.volume_slider = ctk.CTkSlider(volume_frame, from_=0, to=100, width=150,
                                            button_color=COLORS["accent"],
                                            button_hover_color=COLORS["accent_dark"],
                                            progress_color=COLORS["accent"],
                                            fg_color=COLORS["accent_light"],
                                            command=self.change_volume)
-        self.volume_slider.grid(row=0, column=1, padx=10)
-        self.volume_slider.set(70)
-        pygame.mixer.music.set_volume(0.7)
+        self.volume_slider.grid(row=0, column=1, padx=5)
+        # 使用保存的音量（如果没有保存过则使用默认70）
+        initial_volume = getattr(self, 'saved_volume', 70)
+        self.volume_slider.set(initial_volume)
+        pygame.mixer.music.set_volume(initial_volume / 100)
         
-        ctk.CTkLabel(volume_frame, text="🔊 🐱", font=ctk.CTkFont(size=14)).grid(row=0, column=2)
+        # 音量减按钮
+        self.volume_down_btn = ctk.CTkButton(volume_frame, text="-", width=25, height=25,
+                                             font=ctk.CTkFont(size=14, weight="bold"),
+                                             fg_color=COLORS["accent_light"],
+                                             hover_color=COLORS["accent"],
+                                             text_color=COLORS["text_primary"],
+                                             corner_radius=12, command=self.volume_down)
+        self.volume_down_btn.grid(row=0, column=2, padx=2)
+        
+        # 音量数值输入框
+        initial_volume_str = str(getattr(self, 'saved_volume', 70))
+        self.volume_var = tk.StringVar(value=initial_volume_str)
+        self.volume_entry = ctk.CTkEntry(volume_frame, textvariable=self.volume_var,
+                                         font=ctk.CTkFont(size=12), width=45,
+                                         fg_color="white", border_color=COLORS["accent_light"],
+                                         text_color=COLORS["text_primary"], corner_radius=8,
+                                         justify="center")
+        self.volume_entry.grid(row=0, column=3, padx=2)
+        self.volume_entry.bind("<Return>", self.on_volume_entry_change)
+        self.volume_entry.bind("<FocusOut>", self.on_volume_entry_change)
+        
+        # 音量加按钮
+        self.volume_up_btn = ctk.CTkButton(volume_frame, text="+", width=25, height=25,
+                                           font=ctk.CTkFont(size=14, weight="bold"),
+                                           fg_color=COLORS["accent_light"],
+                                           hover_color=COLORS["accent"],
+                                           text_color=COLORS["text_primary"],
+                                           corner_radius=12, command=self.volume_up)
+        self.volume_up_btn.grid(row=0, column=4, padx=2)
+        
+        ctk.CTkLabel(volume_frame, text="🔊 🐱", font=ctk.CTkFont(size=14)).grid(row=0, column=5)
         
         self.status_label = ctk.CTkLabel(content_frame, text="🐾 喵喵~ 请添加或选择歌单",
                                          font=ctk.CTkFont(size=11), text_color=COLORS["text_secondary"])
@@ -421,15 +464,66 @@ class CatMusicPlayer:
     
     # ==================== 歌单管理 ====================
     def auto_load_last_playlist(self):
-        """自动加载上次歌单"""
+        """自动加载上次歌单和歌曲"""
         self.update_playlist_listbox()
+        
+        if not hasattr(self, 'current_song'):
+            self.current_song = {}
         
         if self.current_playlist_name and self.current_playlist_name in self.playlists:
             self.switch_playlist(self.current_playlist_name)
+            # 恢复上次播放的歌曲
+            self.restore_last_song(self.current_playlist_name)
         elif self.playlists:
             # 加载第一个歌单
             first_name = list(self.playlists.keys())[0]
             self.switch_playlist(first_name)
+    
+    def restore_last_song(self, playlist_name):
+        """恢复上次播放的歌曲（根据歌名查找）"""
+        if playlist_name not in self.playlists:
+            return
+        
+        songs = self.playlists[playlist_name].get('songs', [])
+        if not songs:
+            return
+        
+        # 获取上次播放的歌曲文件名
+        last_filename = self.current_song.get(playlist_name, '')
+        
+        if not last_filename:
+            return
+        
+        # 根据文件名查找当前索引
+        found_index = -1
+        for i, (filename, filepath) in enumerate(songs):
+            if filename == last_filename:
+                found_index = i
+                break
+        
+        if found_index >= 0:
+            self.current_index = found_index
+            filename, filepath = songs[found_index]
+            display_name = self.get_display_name(filename)
+            
+            # 更新UI显示上次播放的歌曲（但不自动播放）
+            self.song_name_label.configure(text=f"🎵 {display_name}")
+            self.artist_label.configure(text="🐾 点击播放继续上次的歌曲喵~")
+            self.status_label.configure(text=f"🐱 已定位到上次播放的歌曲: {display_name[:25]}...")
+            
+            # 尝试读取歌曲时长
+            try:
+                from mutagen import File as MutagenFile
+                audio = MutagenFile(filepath)
+                if audio is not None:
+                    self.song_length = audio.info.length
+                    self.time_total.configure(text=self.format_time(self.song_length))
+            except:
+                pass
+            
+            # 高亮显示该歌曲
+            self.update_song_listbox()
+            self.song_listbox.see(found_index)
     
     def update_playlist_listbox(self):
         """更新歌单列表显示"""
@@ -787,7 +881,7 @@ class CatMusicPlayer:
                         command=lambda idx=original_index: self.open_song_folder(idx))
         menu.add_separator()
         
-        # 搜索模式下禁用上移下移
+        # 搜索模式下禁用上移下移（逐首移动）
         if not self.is_searching:
             menu.add_command(label="⬆️ 上移", 
                             command=lambda idx=original_index: self.move_song_up(idx),
@@ -796,6 +890,19 @@ class CatMusicPlayer:
                             command=lambda idx=original_index: self.move_song_down(idx),
                             state="normal" if original_index < len(songs) - 1 else "disabled")
             menu.add_separator()
+        
+        # 移动到最顶/最底 - 搜索模式下也可用
+        menu.add_command(label="⏫ 移动到最顶", 
+                        command=lambda idx=original_index: self.move_song_to_top(idx),
+                        state="normal" if original_index > 0 else "disabled")
+        menu.add_command(label="⏬ 移动到最低", 
+                        command=lambda idx=original_index: self.move_song_to_bottom(idx),
+                        state="normal" if original_index < len(songs) - 1 else "disabled")
+        menu.add_separator()
+        
+        # 编辑位置 - 搜索模式下也可用
+        menu.add_command(label="✏️ 编辑位置...", 
+                        command=lambda idx=original_index: self.edit_song_position(idx))
         
         menu.add_command(label="🗑 删除歌曲", 
                         command=lambda idx=original_index: self.delete_song(idx),
@@ -877,6 +984,159 @@ class CatMusicPlayer:
         self.song_listbox.selection_set(index + 1)
         self.song_listbox.see(index + 1)
     
+    def move_song_to_top(self, index):
+        """移动歌曲到最顶部"""
+        if not self.current_playlist_name or index <= 0:
+            return
+        
+        songs = self.playlists[self.current_playlist_name].get('songs', [])
+        if index >= len(songs):
+            return
+        
+        # 取出该歌曲并插入到最前面
+        song = songs.pop(index)
+        songs.insert(0, song)
+        
+        # 更新当前播放索引
+        if self.current_index == index:
+            self.current_index = 0
+        elif self.current_index < index:
+            self.current_index += 1
+        
+        self.update_song_listbox()
+        self.save_config()
+        
+        # 保持选中状态
+        self.song_listbox.selection_clear(0, tk.END)
+        self.song_listbox.selection_set(0)
+        self.song_listbox.see(0)
+        
+        self.status_label.configure(text=f"🐱 已移动到最顶部喵~")
+    
+    def move_song_to_bottom(self, index):
+        """移动歌曲到最底部"""
+        if not self.current_playlist_name:
+            return
+        
+        songs = self.playlists[self.current_playlist_name].get('songs', [])
+        if index < 0 or index >= len(songs) - 1:
+            return
+        
+        # 取出该歌曲并添加到最后
+        song = songs.pop(index)
+        songs.append(song)
+        
+        # 更新当前播放索引
+        new_index = len(songs) - 1
+        if self.current_index == index:
+            self.current_index = new_index
+        elif self.current_index > index:
+            self.current_index -= 1
+        
+        self.update_song_listbox()
+        self.save_config()
+        
+        # 保持选中状态
+        self.song_listbox.selection_clear(0, tk.END)
+        self.song_listbox.selection_set(new_index)
+        self.song_listbox.see(new_index)
+        
+        self.status_label.configure(text=f"🐱 已移动到最底部喵~")
+    
+    def edit_song_position(self, index):
+        """编辑歌曲位置（移动到指定位置）"""
+        if not self.current_playlist_name:
+            return
+        
+        songs = self.playlists[self.current_playlist_name].get('songs', [])
+        if index < 0 or index >= len(songs):
+            return
+        
+        # 获取歌曲名称
+        filename, _ = songs[index]
+        display_name = self.get_display_name(filename)
+        total = len(songs)
+        
+        # 创建输入对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("编辑歌曲位置")
+        dialog.geometry("300x150")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (300 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (150 // 2)
+        dialog.geometry(f"300x150+{x}+{y}")
+        
+        # 提示文字
+        tk.Label(dialog, text=f"歌曲: {display_name[:30]}", 
+                font=("微软雅黑", 10), fg=COLORS["text_primary"]).pack(pady=(15, 5))
+        tk.Label(dialog, text=f"请输入目标位置 (1-{total}):", 
+                font=("微软雅黑", 10), fg=COLORS["text_secondary"]).pack()
+        
+        # 输入框
+        entry_var = tk.StringVar(value=str(index + 1))
+        entry = tk.Entry(dialog, textvariable=entry_var, font=("微软雅黑", 12), 
+                        justify="center", width=10)
+        entry.pack(pady=10)
+        entry.select_range(0, tk.END)
+        entry.focus()
+        
+        def on_confirm():
+            try:
+                target_pos = int(entry_var.get()) - 1  # 转换为0-based索引
+                if target_pos < 0 or target_pos >= total:
+                    messagebox.showwarning("🐱 提示", f"位置必须在 1-{total} 之间喵~", parent=dialog)
+                    return
+                
+                if target_pos != index:
+                    # 移动歌曲
+                    song = songs.pop(index)
+                    songs.insert(target_pos, song)
+                    
+                    # 更新当前播放索引
+                    if self.current_index == index:
+                        self.current_index = target_pos
+                    elif index < self.current_index <= target_pos:
+                        self.current_index -= 1
+                    elif target_pos <= self.current_index < index:
+                        self.current_index += 1
+                    
+                    self.update_song_listbox()
+                    self.save_config()
+                    
+                    # 保持选中状态
+                    self.song_listbox.selection_clear(0, tk.END)
+                    self.song_listbox.selection_set(target_pos)
+                    self.song_listbox.see(target_pos)
+                    
+                    self.status_label.configure(text=f"🐱 已移动到第 {target_pos + 1} 位喵~")
+                
+                dialog.destroy()
+            except ValueError:
+                messagebox.showwarning("🐱 提示", "请输入有效的数字喵~", parent=dialog)
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        # 按钮
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=5)
+        
+        tk.Button(btn_frame, text="确定", command=on_confirm, 
+                 bg=COLORS["accent"], fg="white", font=("微软雅黑", 10),
+                 width=8, relief=tk.FLAT).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="取消", command=on_cancel,
+                 bg=COLORS["bg_secondary"], fg=COLORS["text_primary"], 
+                 font=("微软雅黑", 10), width=8, relief=tk.FLAT).pack(side=tk.LEFT, padx=5)
+        
+        # 回车确认
+        entry.bind("<Return>", lambda e: on_confirm())
+        entry.bind("<Escape>", lambda e: on_cancel())
+    
     def delete_song(self, index):
         """删除歌曲"""
         if not self.current_playlist_name:
@@ -937,6 +1197,15 @@ class CatMusicPlayer:
         
         self.current_index = index
         filename, filepath = songs[index]
+        
+        # 记录当前播放的歌曲（用于下次打开时恢复）
+        if not hasattr(self, 'current_song'):
+            self.current_song = {}
+        if self.current_playlist_name:
+            self.current_song[self.current_playlist_name] = filename
+        
+        # 保存配置（记录当前播放的歌曲）
+        self.save_config()
         
         try:
             pygame.mixer.music.load(filepath)
@@ -1121,7 +1390,44 @@ class CatMusicPlayer:
         self.status_label.configure(text=f"🐱 播放模式: {modes[self.play_mode]}喵~")
     
     def change_volume(self, value):
-        pygame.mixer.music.set_volume(int(value) / 100)
+        """音量滑块改变时调用"""
+        volume = int(float(value))
+        pygame.mixer.music.set_volume(volume / 100)
+        # 同步更新输入框
+        if hasattr(self, 'volume_var'):
+            self.volume_var.set(str(volume))
+        # 保存配置（记录音量）
+        self.save_config()
+    
+    def volume_up(self):
+        """音量增加"""
+        current = self.volume_slider.get()
+        new_volume = min(100, int(current) + 1)
+        self.volume_slider.set(new_volume)
+        self.change_volume(new_volume)
+    
+    def volume_down(self):
+        """音量减少"""
+        current = self.volume_slider.get()
+        new_volume = max(0, int(current) - 1)
+        self.volume_slider.set(new_volume)
+        self.change_volume(new_volume)
+    
+    def on_volume_entry_change(self, event=None):
+        """音量输入框改变时调用"""
+        try:
+            value = int(self.volume_var.get())
+            # 限制在 0-100 范围内
+            value = max(0, min(100, value))
+            self.volume_slider.set(value)
+            pygame.mixer.music.set_volume(value / 100)
+            self.volume_var.set(str(value))
+            # 保存配置（记录音量）
+            self.save_config()
+        except ValueError:
+            # 输入无效，恢复当前音量值
+            current = int(self.volume_slider.get())
+            self.volume_var.set(str(current))
     
     # ==================== 进度更新 ====================
     def update_progress_loop(self):
